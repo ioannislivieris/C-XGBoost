@@ -7,7 +7,7 @@ This is a repository for the implementation of Causal eXtreme Gradient Boosting 
 
 **Keywords:** Causal inference, XGBoost, treatment effect estimation, potential outcomes
 
-**Cite:** Kiriakidou, N., Livieris I.E. & Diou, Ch. (2024). [C-XGBoost: A tree boosting model for causal effect estimation](https://link.springer.com/chapter/10.1007/978-3-031-63219-8_5). IFIP International Conference on Artificial Intelligence Applications and Innovations.
+**Cite:** Kiriakidou, N., Livieris I.E. & Diou, C. (2024). [C-XGBoost: A tree boosting model for causal effect estimation](https://link.springer.com/chapter/10.1007/978-3-031-63219-8_5). IFIP International Conference on Artificial Intelligence Applications and Innovations.
 
 <br/>
 
