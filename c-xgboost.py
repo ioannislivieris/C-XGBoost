@@ -1,82 +1,94 @@
-import warnings
-warnings.filterwarnings('ignore')
+# %%
+"""
+Demo script for C-XGBoost
+
+This script demonstrates:
+- Loading training and testing data
+- Training a C-XGBoost model
+- Evaluating treatment effect estimation using ATE and PEHE
+"""
 
 import os
 import random
-import time
-import xgboost
+import warnings
 import numpy as np
 from utils.metrics import PEHE, ATE
+from models.cxgboost import CXGBoost
 
-# Random generators initialization
-seed=42
-random.seed(seed)
-os.environ["PYTHONHASHSEED"] = str(seed)
-np.random.seed(seed)
+# -----------------------------------------------------------------------------
+# Configuration
+# -----------------------------------------------------------------------------
+warnings.filterwarnings("ignore")
 
-# %%
-# Start timer
-start = time.time()
+SEED = 42
+DATA_DIR = "Data"
 
-# Load train data
-data = np.load('Data/train.npz')
-trainX, trainT, trainY, train_potential_Y = data['X'], data['T'], data['Y'], data['potential_Y']
-# Load valid data
-data = np.load('Data/test.npz')
-testX, testT, testY, test_potential_Y = data['X'], data['T'], data['Y'], data['potential_Y']
-print("[INFO] Dataset imported")
-print(f"[INFO] Number of training instances: {trainX.shape[0]}")
-print(f"[INFO] Number of testing instances: {testX.shape[0]}")
+# Reproducibility
+random.seed(SEED)
+np.random.seed(SEED)
+os.environ["PYTHONHASHSEED"] = str(SEED)
 
-    
-
-# Loss function
-# -----------------------------------------------------------------------------------------------------
-treatment = np.array([[1,0] if x == 0 else [0,1] for x in trainT]).flatten()
-
-def custom_loss(y_true:np.ndarray=None, y_pred:np.ndarray=None)->(np.ndarray, np.ndarray):
-    grad = 2*(y_pred.flatten() - y_true.flatten()) * treatment
-    hess = (0*y_pred.flatten() + 2)  * treatment
-
-    return grad, hess
-    
+# -----------------------------------------------------------------------------
+# Data Loading
+# -----------------------------------------------------------------------------
+def load_dataset(path: str):
+    """Load dataset from a NumPy .npz file."""
+    data = np.load(path)
+    return data["X"], data["T"], data["Y"], data["potential_Y"]
 
 
-# Setup XGBoost
-# -----------------------------------------------------------------------------------------------------
-model = xgboost.XGBRegressor(n_estimators=500, 
-                                max_depth=4, 
-                                objective=custom_loss, 
-                                learning_rate=1e-2, 
-                            #  booster="gblinear",
-                                n_jobs=-1,
-                                tree_method="hist", 
-                                multi_strategy="multi_output_tree")
-    
-# Create outputs for DragonNet (concatenate Y & T)
-yt_train = np.concatenate([trainY.reshape(-1,1), trainT.reshape(-1,1)], axis = 1)
+# Load training data
+trainX, trainT, trainY, train_potential_Y = load_dataset(
+    os.path.join(DATA_DIR, "train.npz")
+)
 
+# Load test data
+testX, testT, testY, test_potential_Y = load_dataset(
+    os.path.join(DATA_DIR, "test.npz")
+)
 
-# Train model
-model.fit(trainX, yt_train, eval_set=[(trainX, train_potential_Y), (testX, test_potential_Y)], verbose=25);
-print('[INFO] Model trained')    
-print('[INFO] Time %.2f seconds' % (time.time() - start))
+print("[INFO] Dataset loaded successfully")
+print(f"[INFO] Training samples: {trainX.shape[0]}")
+print(f"[INFO] Testing samples:  {testX.shape[0]}")
 
-# %%
-# Get predictions
-# -----------------------------------------------------------------------------------------------------
-test_y_hat = model.predict(testX)
+# -----------------------------------------------------------------------------
+# Model Configuration and Training
+# -----------------------------------------------------------------------------
+model_params = {
+    "n_estimators": 100,
+    "max_depth": 5,
+    "learning_rate": 1e-2,
+    "n_jobs": -1,
+    "lambda": 5,
+    "reg_alpha": 1.0,
+    "reg_lambda": 1.0,
+    "tree_method": "hist",
+}
 
-# Calculate performance metrics
-# -----------------------------------------------------------------------------------------------------
-# ATE
-real_ATE = ( test_potential_Y[:,1] - test_potential_Y[:,0] ).mean()      
-# Error ATE
-Error_ATE = ATE(test_potential_Y, test_y_hat)  
-# PEHE
-PEHE_score = PEHE(test_potential_Y, test_y_hat)
+model = CXGBoost(parameters=model_params)
+model.fit(X=trainX, t=trainT, y=trainY)
 
-print(f"Error_ATE: {Error_ATE:.3f}")
-print(f"PEHE: {PEHE_score:.3f}")
+# -----------------------------------------------------------------------------
+# Prediction
+# -----------------------------------------------------------------------------
+predictions = model.predict(testX)
 
+# Stack potential outcome predictions: [Y(0), Y(1)]
+predicted_potential_outcomes = np.column_stack(
+    [predictions["y0_hat"], predictions["y1_hat"]]
+)
 
+# -----------------------------------------------------------------------------
+# Evaluation
+# -----------------------------------------------------------------------------
+# Ground-truth ATE
+true_ate = (test_potential_Y[:, 1] - test_potential_Y[:, 0]).mean()
+
+# Estimated errors
+ate_error = ATE(test_potential_Y, predicted_potential_outcomes)
+pehe_score = PEHE(test_potential_Y, predicted_potential_outcomes)
+
+print("\n\n[RESULTS]")
+print(f"True ATE     : {true_ate:.3f}")
+print(f"ATE Error    : {ate_error:.3f}")
+print(f"PEHE         : {pehe_score:.3f}")
