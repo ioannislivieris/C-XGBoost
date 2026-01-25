@@ -34,7 +34,7 @@ This is a repository for the implementation of Causal eXtreme Gradient Boosting 
 - **Propensity score modeling** using Random Forest with balanced class weights
 - **Custom loss function** for causal effect estimation with treatment masking
 - **Built-in missing value handling** inherited from XGBoost
-- **Regularization techniques** ($L_1$/$L_2$) to prevent overfitting
+- **Regularization techniques** $L_1$ and $L_2$  to prevent overfitting
 - **Comprehensive evaluation** using PEHE and ATE metrics
 
 <br/>
