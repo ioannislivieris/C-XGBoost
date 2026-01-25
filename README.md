@@ -51,7 +51,7 @@ C-XGBoost combines the strengths of tree-based models with causal inference prin
 The model estimates:
 - $y_0(x)$: Expected outcome under control condition
 - $y_1(x)$: Expected outcome under treatment condition  
-- $p(x)$: P(T=1|X) for each sample
+- $p(x)$: $P(T=1|X)$ for each sample
 
 <br/>
 
@@ -76,7 +76,7 @@ The model estimates:
 
 ### Prerequisites
 
-- Python 3.8 or higher
+- Python 3.9 or higher
 - pip package manager
 
 ### Dependencies
