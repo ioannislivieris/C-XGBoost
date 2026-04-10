@@ -68,17 +68,9 @@ Extends C-XGBoost along two axes:
 
 **Training objective** — targeted regularization loss:
 
-$$\mathcal{L}_\varepsilon = \frac{1}{n}\sum_i\left[R_i + \alpha\, C(\hat{g}_i, t_i)\right] + \frac{\beta}{n}\sum_i r_i$$
+$$\mathcal{L}_\varepsilon = \frac{1}{n}\sum_i\left[(1-t_i)(y_i - Q_0)^2 + t_i(y_i - Q_1)^2 + \alpha\, C(\hat{g}_i, t_i)\right] + \frac{\beta}{n}\sum_i r_i$$
 
-where $R_i$ is the treatment-masked MSE, $C$ is the cross-entropy loss on the propensity head, and the targeted regularization term is:
-
-$$r_i = (1-t_i)(y_i - \tilde{Q}_0^i)^2 + t_i(y_i - \tilde{Q}_1^i)^2$$
-
-with shifted outcomes:
-
-$$\tilde{Q}_0 = Q_0 - \frac{\varepsilon}{1 - \hat{g}}, \qquad \tilde{Q}_1 = Q_1 + \frac{\varepsilon}{\hat{g}}$$
-
-The shared tree structure at each iteration jointly optimizes all three outputs via a composite gain criterion, making it computationally more efficient than three independent ensembles.
+where $C$ is the cross-entropy loss on the propensity head, and the targeted regularization term (more information can be found in ```Documents\A C-XGBoost model with targeted regularization for causal effect estimation.pdf```)
 
 ---
 
@@ -349,7 +341,5 @@ This project is licensed under the MIT License — see the [LICENSE](LICENSE) fi
 ## Contact
 
 **Ioannis E. Livieris** — livieris@uop.gr  
-**Niki Kiriakidou** — kiriakidou@hua.gr  
-**Christos Diou** — cdiou@hua.gr
 
 For questions or issues, please open an issue on the repository or contact the authors directly.
