@@ -1,184 +1,257 @@
-# C-XGBoost: A tree boosting model for causal effect estimation
+# C-XGBoost: Tree Boosting Models for Causal Effect Estimation
 
-This is a repository for the implementation of Causal eXtreme Gradient Boosting (C-XGBoost) model, for causal effect estimation.
+This repository contains the implementation of two tree-based causal inference models:
 
+- **C-XGBoost** — a multi-output XGBoost model with DragonNet-style treatment masking for joint estimation of potential outcomes *(AIAI 2024)*
+- **C-XGBoost (treg)** — an extended version augmented with a third output head for propensity score estimation and a targeted regularization loss function grounded in non-parametric estimation theory *(Neural Computing & Applications, 2025)*
 
-**Abstract:** Causal effect estimation aims at estimating the Average Treatment Effect as well as the Conditional Average Treatment Effect of a treatment to an outcome from the available data. This knowledge is important in many safety-critical domains, where it often needs to be extracted from observational data. In this work, we propose a new causal inference model, named C-XGBoost, for the prediction of potential outcomes. The motivation of our approach is to exploit the superiority of tree-based models for handling tabular data together with the notable property of causal inference neural network-based models to learn representations that are useful for estimating the outcome for both the treatment and non-treatment cases. The proposed model also inherits the considerable advantages of XGBoost model such as efficiently handling features with missing values requiring minimum preprocessing effort, as well as it is equipped with regularization techniques to avoid overfitting/bias. Furthermore, we propose a new loss function for efficiently training the proposed causal inference model. The experimental analysis, which is based on the performance profiles of Dolan and Moré as well as on post-hoc and non-parametric statistical tests, provide strong evidence about the effectiveness of the proposed approach.
+---
 
-**Keywords:** Causal inference, XGBoost, treatment effect estimation, potential outcomes
+## Table of Contents
 
-**Cite:** Kiriakidou, N., Livieris I.E. & Diou, C. (2024). [C-XGBoost: A tree boosting model for causal effect estimation](https://link.springer.com/chapter/10.1007/978-3-031-63219-8_5). IFIP International Conference on Artificial Intelligence Applications and Innovations.
-
-<br/>
-
-## Table of contents
-
-- [Features](#features)
-- [Model Architecture](#model-architecture)
+- [Overview](#overview)
+- [Model Architectures](#model-architectures)
+  - [C-XGBoost](#c-xgboost)
+  - [C-XGBoost (treg)](#c-xgboost-treg)
+- [Theoretical Properties](#theoretical-properties)
 - [Project Structure](#project-structure)
 - [Installation](#installation)
-- [How to run](#how-to-run)
+- [How to Run](#how-to-run)
 - [Data Format](#data-format)
 - [Usage](#usage)
+- [Hyperparameters](#hyperparameters)
 - [Evaluation Metrics](#evaluation-metrics)
+- [Experimental Results](#experimental-results)
 - [Citation](#citation)
 - [License](#license)
-- [Contact](#mailbox-contact)
+- [Contact](#contact)
 
-<br/>
+---
 
-## Features
+## Overview
 
-- **DragonNet-style treatment masking** for joint estimation of potential outcomes
-- **XGBoost-based architecture** leveraging tree boosting for tabular data
-- **Propensity score modeling** using Random Forest with balanced class weights
-- **Custom loss function** for causal effect estimation with treatment masking
-- **Built-in missing value handling** inherited from XGBoost
-- **Regularization techniques** $L_1$ and $L_2$  to prevent overfitting
-- **Comprehensive evaluation** using PEHE and ATE metrics
+Accurate estimation of treatment effects from observational data is a critical challenge in medicine, economics, and healthcare. Both models in this repository exploit the complementary strengths of two paradigms:
 
-<br/>
+- **Tree-based models** (XGBoost): robust handling of tabular data, resistance to uninformative features, ability to capture irregular/non-smooth patterns, built-in missing value support, and regularization
+- **Neural network-based causal inference** (DragonNet): shared representation learning across treatment and control groups through a multi-head architecture
 
-## Model Architecture
+C-XGBoost (treg) further introduces a loss function derived from non-parametric estimation theory that directly enforces the efficient influence curve of the ATE functional, yielding double robustness and semiparametric efficiency guarantees.
 
-C-XGBoost combines the strengths of tree-based models with causal inference principles:
+---
 
-1. **Multi-output XGBoost regressor**: Simultaneously predicts potential outcomes $y_0$ and $y_1$
-2. **Treatment masking**: DragonNet-inspired approach that masks gradients based on observed treatment
-3. **Propensity score estimation**: Random Forest classifier for estimating treatment assignment probabilities
-4. **Custom MSE loss**: Modified mean squared error with treatment-aware gradient computation
+## Model Architectures
 
-The model estimates:
-- $y_0(x)$: Expected outcome under control condition
-- $y_1(x)$: Expected outcome under treatment condition  
-- $p(x)$: $P(T=1|X)$ for each sample
+### C-XGBoost
 
-<br/>
+At each boosting iteration, a single multi-output tree is constructed with **two values per leaf** — one for each potential outcome:
+
+- $\hat{Q}_0(\mathbf{x}_i;\theta)$ — predicted outcome under control ($T=0$)
+- $\hat{Q}_1(\mathbf{x}_i;\theta)$ — predicted outcome under treatment ($T=1$)
+
+**Training objective** — treatment-masked MSE loss:
+
+$$\mathcal{L}(\mathbf{X};\theta) = \frac{1}{n}\sum_i \left[(1-t_i)(y_i - Q_0)^2 + t_i(y_i - Q_1)^2\right]$$
+
+Gradients are masked via a DragonNet-inspired treatment indicator, ensuring each output head receives gradient signal only from the corresponding group.
+
+Propensity scores are estimated separately via a Random Forest classifier with balanced class weights.
+
+### C-XGBoost (treg)
+
+Extends C-XGBoost along two axes:
+
+**Architecture**: a single multi-output tree with **three values per leaf**:
+
+- $\hat{Q}_0(\mathbf{x}_i;\theta)$ — predicted outcome under control
+- $\hat{Q}_1(\mathbf{x}_i;\theta)$ — predicted outcome under treatment
+- $z(\mathbf{x}_i;\theta)$ — propensity logit, from which $\hat{g}(\mathbf{x}_i;\theta) = \sigma(z)$
+
+**Training objective** — targeted regularization loss:
+
+$$\mathcal{L}_\varepsilon = \frac{1}{n}\sum_i\left[R_i + \alpha\, C(\hat{g}_i, t_i)\right] + \frac{\beta}{n}\sum_i r_i$$
+
+where $R_i$ is the treatment-masked MSE, $C$ is the cross-entropy loss on the propensity head, and the targeted regularization term is:
+
+$$r_i = (1-t_i)(y_i - \tilde{Q}_0^i)^2 + t_i(y_i - \tilde{Q}_1^i)^2$$
+
+with shifted outcomes:
+
+$$\tilde{Q}_0 = Q_0 - \frac{\varepsilon}{1 - \hat{g}}, \qquad \tilde{Q}_1 = Q_1 + \frac{\varepsilon}{\hat{g}}$$
+
+The shared tree structure at each iteration jointly optimizes all three outputs via a composite gain criterion, making it computationally more efficient than three independent ensembles.
+
+---
+
+## Theoretical Properties
+
+Under standard causal assumptions (unconfoundedness, positivity, SUTVA, regularity), minimizing $\mathcal{L}_\varepsilon$ forces the model to satisfy the non-parametric estimating equation defined by the **efficient influence curve** of the ATE. This yields two formal guarantees for the ATE estimator $\hat{\psi} = \frac{1}{n}\sum_i(\hat{Q}_1^{\text{treg}}(\mathbf{x}_i) - \hat{Q}_0^{\text{treg}}(\mathbf{x}_i))$:
+
+- **Double robustness & fast convergence**: $\hat{\psi}$ converges to the true ATE even when the outcome models and propensity score converge slowly — each can partially compensate for the other's misspecification.
+- **Semiparametric efficiency**: $\hat{\psi}$ achieves the lowest possible asymptotic variance among all consistent estimators of the ATE.
+
+---
 
 ## Project Structure
 
 ```
 .
-├── c-xgboost.py          # Demo script for training and evaluation
-├── cxgboost.py           # Core CXGBoost model implementation
-├── metrics.py            # Evaluation metrics (PEHE, ATE)
-├── requirements.txt      # Python dependencies
-├── LICENSE               # License file
-├── README.md            # This file
-└── Data/                # Data directory (not included)
-    ├── train.npz        # Training dataset
-    └── test.npz         # Testing dataset
+├── models/
+│   ├── cxgboost.py           # C-XGBoost implementation
+│   └── cxgboost_treg.py      # C-XGBoost (treg) implementation
+├── utils/
+│   └── metrics.py            # Evaluation metrics (PEHE, ATE)
+├── run_c-xgboost.py          # Demo script for C-XGBoost
+├── run_c-xgboost-treg.py     # Demo script for C-XGBoost (treg)
+├── requirements.txt          # Python dependencies
+├── LICENSE
+├── README.md
+└── Data/                     # Data directory (not included)
+    ├── train.npz
+    └── test.npz
 ```
 
-<br/>
+---
 
 ## Installation
 
 ### Prerequisites
 
 - Python 3.9 or higher
-- pip package manager
+- pip
 
 ### Dependencies
 
-The project requires the following packages:
-- numpy==2.0.0
-- xgboost==2.0.0
-- scikit-learn==1.5.0
+```
+numpy>=2.0.0
+xgboost>=2.0.0
+scikit-learn>=1.5.0
+```
 
-<br/>
+### Setup
 
-## How to run
-
-1. Create a virtual environment 
 ```bash
 python -m venv .venv
-```
-
-2. Activate the virtual environment 
-```bash
-source .venv/bin/activate
-```
-
-3. Install requirements 
-```bash
+source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-4. Run
+---
+
+## How to Run
+
+**C-XGBoost:**
 ```bash
-python c-xgboost.py
+python run_c-xgboost.py
 ```
 
-<br/>
+**C-XGBoost (treg):**
+```bash
+python run_c-xgboost-treg.py
+```
+
+---
 
 ## Data Format
 
-The model expects data in NumPy `.npz` format with the following structure:
+Both models expect NumPy `.npz` files with the following keys:
 
 ```python
 {
-    'X': np.ndarray,           # Covariates, shape (n_samples, n_features)
-    'T': np.ndarray,           # Treatment indicator, shape (n_samples,), binary 0/1
-    'Y': np.ndarray,           # Observed outcome, shape (n_samples,)
-    'potential_Y': np.ndarray  # Ground truth potential outcomes, shape (n_samples, 2)
-                               # Column 0: Y(0), Column 1: Y(1)
+    'X':           np.ndarray,  # Covariates,           shape (n, d)
+    'T':           np.ndarray,  # Treatment indicator,  shape (n,), binary 0/1
+    'Y':           np.ndarray,  # Observed outcome,     shape (n,)
+    'potential_Y': np.ndarray   # Ground-truth outcomes, shape (n, 2)
+                                # col 0: Y(0),  col 1: Y(1)
 }
 ```
 
-**Note**: `potential_Y` is only required for evaluation (typically available in simulation studies).
+> `potential_Y` is required only for evaluation and is typically available in semi-synthetic benchmark settings.
 
-<br/>
+---
 
 ## Usage
 
-### Basic Usage
+### C-XGBoost
 
 ```python
-from cxgboost import CXGBoost
+from models.cxgboost import CXGBoost
 import numpy as np
 
-# Load your data
 data = np.load('Data/train.npz')
 X_train, T_train, Y_train = data['X'], data['T'], data['Y']
 
-# Initialize model
-model_params = {
-    'n_estimators': 100,
-    'max_depth': 5,
-    'learning_rate': 0.01,
-    'reg_alpha': 1.0,
-    'reg_lambda': 1.0,
-}
+model = CXGBoost(parameters={
+    'n_estimators':  100,
+    'max_depth':     5,
+    'learning_rate': 1e-2,
+    'reg_alpha':     1.0,
+    'reg_lambda':    1.0,
+    'tree_method':   'hist',
+    'n_jobs':        -1,
+})
 
-model = CXGBoost(parameters=model_params)
-
-# Train the model
 model.fit(X=X_train, t=T_train, y=Y_train)
 
-# Make predictions
-test_data = np.load('Data/test.npz')
-predictions = model.predict(test_data['X'])
+test  = np.load('Data/test.npz')
+preds = model.predict(test['X'])
 
-# Access predictions
-y0_hat = predictions['y0_hat']              # Control outcome predictions
-y1_hat = predictions['y1_hat']              # Treatment outcome predictions
-propensity = predictions['propensity_score'] # Treatment propensity scores
+y0_hat        = preds['y0_hat']           # Predicted Y(0)
+y1_hat        = preds['y1_hat']           # Predicted Y(1)
+propensity    = preds['propensity_score'] # P(T=1|X) from Random Forest
 ```
 
-### Custom Propensity Model
+#### Custom propensity model
 
 ```python
 from sklearn.linear_model import LogisticRegression
 
-# Use custom propensity model
-custom_propensity = LogisticRegression(max_iter=1000, class_weight='balanced')
-model = CXGBoost(parameters=model_params, propensity_model=custom_propensity)
+model = CXGBoost(
+    parameters=model_params,
+    propensity_model=LogisticRegression(max_iter=1000, class_weight='balanced')
+)
 ```
 
-### Model Parameters
+---
 
-Key hyperparameters for `CXGBoost`:
+### C-XGBoost (treg)
+
+```python
+from models.cxgboost_treg import CXGBoostTreg
+import numpy as np
+
+data = np.load('Data/train.npz')
+X_train, T_train, Y_train = data['X'], data['T'], data['Y']
+
+model = CXGBoostTreg(
+    parameters={
+        'n_estimators':  200,
+        'max_depth':     4,
+        'learning_rate': 1e-1,
+        'reg_alpha':     1.0,
+        'reg_lambda':    1.0,
+        'tree_method':   'hist',
+        'n_jobs':        -1,
+    },
+    alpha=1.0,    # Weight for propensity cross-entropy term
+    beta=1.0,     # Weight for targeted regularization term
+    epsilon=0.01, # Targeted regularization shift parameter
+)
+
+model.fit(X=X_train, t=T_train, y=Y_train)
+
+test  = np.load('Data/test.npz')
+preds = model.predict(test['X'])
+
+y0_hat     = preds['y0_hat']           # Predicted Y(0)
+y1_hat     = preds['y1_hat']           # Predicted Y(1)
+propensity = preds['propensity_score'] # P(T=1|X) = sigmoid(z)
+```
+
+---
+
+## Hyperparameters
+
+### XGBoost parameters (both models)
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
@@ -187,45 +260,62 @@ Key hyperparameters for `CXGBoost`:
 | `learning_rate` | Step size shrinkage | 0.01 |
 | `reg_alpha` | L1 regularization | 1.0 |
 | `reg_lambda` | L2 regularization | 1.0 |
-| `tree_method` | Tree construction algorithm | 'hist' |
-| `n_jobs` | Number of parallel threads | -1 |
+| `tree_method` | Tree construction algorithm | `'hist'` |
+| `n_jobs` | Parallel threads | -1 |
 
-<br/>
+### C-XGBoost (treg) specific parameters
+
+| Parameter | Description | Recommended range |
+|-----------|-------------|-------------------|
+| `alpha` | Weight for propensity cross-entropy | 1.0 |
+| `beta` | Weight for targeted regularization | 0.4–1.0 |
+| `epsilon` | Targeted regularization shift | 0.01 |
+
+> **Tuning `beta`**: Ablation experiments indicate that for complex or imbalanced datasets (e.g., IHDP, ACIC) values of `beta` ∈ {0.8, 1.0} work best, while moderate values around 0.4–0.6 are preferable for simpler datasets. Setting `beta=0` recovers the base C-XGBoost loss (without targeted regularization).
+
+---
 
 ## Evaluation Metrics
 
-The implementation includes two standard causal inference metrics:
-
 ### PEHE (Precision in Estimation of Heterogeneous Effect)
 
-Measures the accuracy of individual treatment effect estimation:
+$$\text{PEHE} = \frac{1}{n}\sum_i\left[(\tau(\mathbf{x}_i) - \hat{\tau}(\mathbf{x}_i))^2\right], \quad \tau(\mathbf{x}) = y_1(\mathbf{x}) - y_0(\mathbf{x})$$
 
 ```python
-from metrics import PEHE
-
-pehe_score = PEHE(y_true=potential_outcomes, y_hat=predicted_outcomes)
+from utils.metrics import PEHE
+pehe = PEHE(y_true=potential_outcomes, y_hat=predicted_outcomes)
 ```
 
-**Formula**: $\text{PEHE} = E[(\tau(x) - \hat{\tau}(x))^2]$, where $\tau(x) = y_1(x) - y_0(x)$
+### ATE error
 
-### ATE (Average Treatment Effect)
-
-Measures the error in estimating the population-level treatment effect:
+$$|\epsilon_{\text{ATE}}| = \left|\frac{1}{n}\sum_i(y_1(\mathbf{x}_i) - y_0(\mathbf{x}_i)) - \frac{1}{n}\sum_i(\hat{y}_1(\mathbf{x}_i) - \hat{y}_0(\mathbf{x}_i))\right|$$
 
 ```python
-from metrics import ATE
-
+from utils.metrics import ATE
 ate_error = ATE(y_true=potential_outcomes, y_hat=predicted_outcomes)
 ```
 
-**Formula**: $|E[y_1(x) - y_0(x)] - E[\hat{y}_1(x) - \hat{y}_0(x)]|$
+---
 
-<br/>
+## Experimental Results
+
+Both models were evaluated on three semi-synthetic benchmark collections (Synthetic, IHDP, ACIC) using non-parametric Friedman Aligned-Ranks (FAR) test and Li post-hoc test (α = 5%). Competitors include R-Forest, C-Forest, DragonNet, and MINT-DragonNet.
+
+**C-XGBoost (treg) ranked first overall** across all three collections and both metrics. Key findings:
+
+- On **Synthetic**: C-XGBoost (treg) significantly outperforms all competitors on both $|\epsilon_{\text{ATE}}|$ and PEHE.
+- On **IHDP**: C-XGBoost (treg) matches MINT-DragonNet (best neural network model) and significantly outperforms the base C-XGBoost, demonstrating the impact of targeted regularization on imbalanced data.
+- On **ACIC**: C-XGBoost (treg) leads, followed by tree-based models; neural network-based models report poor performance on this collection.
+
+Full statistical tables are provided in the respective papers.
+
+---
 
 ## Citation
 
-If you use this code in your research, please cite:
+If you use this code, please cite the relevant paper(s):
 
+**C-XGBoost** (AIAI 2024):
 ```bibtex
 @inproceedings{kiriakidou2024c,
   title={C-XGBoost: A tree boosting model for causal effect estimation},
@@ -237,19 +327,29 @@ If you use this code in your research, please cite:
 }
 ```
 
-<br/>
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-<br/>
-
-## :mailbox: Contact
-
-**Ioannis E. Livieris**  
-Email: livieris@uop.gr
+**C-XGBoost (treg)** (Neural Computing & Applications, 2025):
+```bibtex
+@article{kiriakidou2025,
+  title={C-XGBoost model with targeted regularization for treatment effect estimation},
+  author={Kiriakidou, Niki and Livieris, Ioannis E and Diou, Christos},
+  journal={Neural Computing \& Applications},
+  year={2025},
+  publisher={Springer}
+}
+```
 
 ---
 
-For questions, issues, or contributions, please open an issue on the repository or contact the authors directly.
+## License
+
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+
+---
+
+## Contact
+
+**Ioannis E. Livieris** — livieris@uop.gr  
+**Niki Kiriakidou** — kiriakidou@hua.gr  
+**Christos Diou** — cdiou@hua.gr
+
+For questions or issues, please open an issue on the repository or contact the authors directly.
